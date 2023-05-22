@@ -4,7 +4,7 @@ pipeline {
   stages {
     stage('Checkout') {
       steps {
-            git ''
+            git 'https://github.com/cdtsushant11/nodejs-demo.git'
             }
     }
     stage('Build Docker Image') {
