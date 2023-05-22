@@ -1,52 +1,44 @@
 pipeline {
-agent{
-    kubernetes{
-        inheritFrom 'slave'
+  agent any
+  
+  stages {
+    stage('Checkout') {
+      steps {
+            git ''
+            }
     }
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t my-app .'
+      }
+    }
+    stage('Push Docker Image to JFrog') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'jfrog-credentials', usernameVariable: 'JFROG_USER', passwordVariable: 'JFROG_PASS')]) {
+          sh 'jfrog rt docker-push my-app:latest my-docker-repo --url=https://my-jfrog-url.com/artifactory --user=$JFROG_USER --password=$JFROG_PASS'
+        }
+      }
+    }
+    stage('Create Helm Chart') {
+      steps {
+        sh 'helm create my-app'
+        // edit the my-app/values.yaml file as needed
+      }
+    }
+    stage('Push Helm Chart to JFrog') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'jfrog-credentials', usernameVariable: 'JFROG_USER', passwordVariable: 'JFROG_PASS')]) {
+          sh 'jfrog rt u my-app/ my-helm-charts --url=https://my-jfrog-url.com/artifactory --user=$JFROG_USER --password=$JFROG_PASS'
+        }
+      }
+    }
+    stage('Deploy to GKE') {
+      steps {
+        withCredentials([gcpServiceAccount(credentialsId: 'gcp-credentials', accountEmailVariable: 'GCP_SA_EMAIL', jsonKeyVariable: 'GCP_SA_KEY')]) {
+          sh 'gcloud container clusters get-credentials my-gke-cluster --zone us-central1-a --project my-gcp-project --account=$GCP_SA_EMAIL --key-file=$GCP_SA_KEY'
+          sh 'helm upgrade --install my-app my-helm-charts/my-app --set image.tag=latest'
+        }
+      }
+    }
+  }
 }
-   
-environment {
-        imagename = "myjenkins-docker-deploy"
-        PROJECT_ID = 'eminent-ember-374712'
-        CLUSTER_NAME = 'pushpak-cluster'
-        LOCATION = 'us-central1-b'
-        CREDENTIALS_ID = 'eminent-ember-374712'
-    }
-
-    stages{
-        stage("Checkout code") {
-            steps {
-            git 'https://github.com/pushpak838/nodejs-demo.git'
-            }
-        }
-        
-        stage("Building Application Docker Image"){
-            steps{
-                script{
-                    sh 'gcloud auth configure-docker asia-south1-docker.pkg.dev'
-                    sh 'docker build . -t us-central1-docker.pkg.dev/eminent-ember-374712/dajrepo:$imagename'
-                    }
-                }
-            }
-        stage("Pushing Application Docker Image to Google Artifact Registry"){
-            steps{
-                script{
-                    sh 'docker push us-central1-docker.pkg.dev/eminent-ember-374712/dajrepo:$imagename'
-        }}}
-        stage ("Updating Deployment Manifest") {
-            steps {
-                script {
-                    sh 'sed -i s+us-central1-docker.pkg.dev/eminent-ember-374712/dajrepo:v1+us-central1-docker.pkg.dev/eminent-ember-374712/dajrepo:$imagename+g gke-dynamic-agent/manifests/deployment.yaml'
-                }
-            }
-        }
-        stage("Application Deployment on Google Kubernetes Engine"){
-            steps{
-                script{
-                    sh "gcloud container clusters get-credentials app-cluster --zone $LOCATION --project $CREDENTIALS_ID"
-                    sh 'kubectl apply -f gke-dynamic-agent/manifests/.'
-                }
-            }
-        }
-    }
-    }
